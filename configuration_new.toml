@@ -1,0 +1,30 @@
+[database]
+# location of db
+host = ""
+# db user
+user = ""
+# db password
+password = ""
+# db name
+dbname = "reddit"
+
+[api]
+# user agent - just create sth based on your reddit nickname or name of the app registered on reddit (script) (Do not try imitate browsers! Based on Reddit's TOS)
+user_agent = ""
+# Reddit username
+username = ""
+# Reddit password
+password = ""
+# Client id - Under the name in the Reddit's apps tab (preference/apps)
+client_id = ""
+# Secret from the same tab (preference/apps)
+secret = ""
+token_file = "tokens.json"
+
+[reddit]
+# List of subreddits to check in format "/r/all" i.e.  ["/r/StockMarket", "/r/Economics"], as many as you want
+subreddits = []
+# Endings such as "/hot"
+endings = ["/hot", "/best", "/top", "/rising"]
+# Maximum depth of comments to be checked 1 => only one depth of children
+max_comment_depth = 1
