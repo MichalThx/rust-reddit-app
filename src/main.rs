@@ -1,48 +1,25 @@
-#![allow(dead_code)]
-#![allow(non_snake_case)]
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(non_upper_case_globals)]
-#![allow(unused_must_use)]
-#![allow(unused_mut)]
-#![allow(unused_doc_comments)]
-
-use std::fs;
-use std::fs::{File, OpenOptions};
-use std::future::Future;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::pin::Pin;
-use std::ptr::null;
-use std::time::SystemTime;
-use std::{env, io};
+use std::fs::{OpenOptions};
 
 use async_recursion::async_recursion;
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use futures::future::BoxFuture;
-use reqwest::header::USER_AGENT;
-use reqwest::{header, Client, Request, Result, Url};
+use chrono::{Duration, NaiveDateTime, Utc};
+use reqwest::{header, Client, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{Result as R, Value};
+use serde_json::{Value};
 use tokio::{task, time};
-use tokio_postgres::types::Type;
-use tokio_postgres::{Error, NoTls, Row};
-use toml::{Value as TomlValue, de::Error as TomlError};
-use toml::value::{Array, Datetime};
+use tokio_postgres::{NoTls};
+use toml::value::{Array};
 
 static DEBUG : bool = true;
 
 #[derive(Serialize, Deserialize)]
 struct RefreshToken {
     token: String,
-    unixTimestamp: NaiveDateTime,
+    unix_timestamp: NaiveDateTime,
 }
 
 #[derive(Deserialize)]
 struct RefreshTokenAPI {
     access_token: String,
-    token_type: String,
-    expires_in: i32,
-    scope: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -80,11 +57,11 @@ async fn main() -> Result<()>{
     let thread = task::spawn(async {
         loop {
             time::sleep(time::Duration::from_secs(900_u64)).await;
-            get_data().await;
+            get_data().await.unwrap();
         }
     });
 
-    thread.await;
+    thread.await.unwrap();
     Ok(())
 }
 
@@ -128,9 +105,9 @@ async fn get_data() -> Result<()> {
 
     let http_client = Client::builder().default_headers(headers).build().unwrap();
 
-    discover_posts(&db_client, &http_client, &config).await;
+    discover_posts(&db_client, &http_client, &config).await.unwrap();
     if DEBUG {println!("Finished discovery");}
-    download_data(&db_client, &http_client, &config).await;
+    download_data(&db_client, &http_client, &config).await.unwrap();
     Ok(())
 }
 
@@ -149,7 +126,7 @@ async fn refresh_token(config : &Config) -> String {
         match request_token(&config).await {
             Ok(tok) => update_token(&name, tok),
             Err(e) => {
-                panic!("Error getting token");
+                panic!("Error getting token with error {}", e.to_string());
             }
         }
     }
@@ -160,7 +137,7 @@ async fn refresh_token(config : &Config) -> String {
 /// Checks if the token is "fresh" enough to be used
 /// If it is not, returns false and requires a token refresh
 fn is_valid_token(config : &Config) -> (bool, String) {
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .create(true)
         .write(true)
         .read(true)
@@ -176,7 +153,7 @@ fn is_valid_token(config : &Config) -> (bool, String) {
     for result in reader.deserialize() {
         let record: RefreshToken = result.unwrap();
         diff = current_time
-            .signed_duration_since(record.unixTimestamp)
+            .signed_duration_since(record.unix_timestamp)
             .num_minutes();
         refresh_token = record.token;
     }
@@ -189,19 +166,19 @@ fn is_valid_token(config : &Config) -> (bool, String) {
 /// Asks the API for the new token and refreshes the
 /// storage file with it.
 fn update_token(name: &str, token: String) -> String {
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .truncate(true)
         .open(name)
         .unwrap();
     let refreshed_token = RefreshToken {
         token: token.parse().unwrap(),
-        unixTimestamp: Utc::now().naive_utc(),
+        unix_timestamp: Utc::now().naive_utc(),
     };
     let mut wtr = csv::WriterBuilder::new()
         .has_headers(false)
         .from_writer(&file);
-    wtr.serialize(refreshed_token);
+    wtr.serialize(refreshed_token).unwrap();
     token
 }
 
@@ -211,7 +188,7 @@ async fn request_token(config : &Config) -> Result<String> {
         header::USER_AGENT,
         header::HeaderValue::from_str(&config.api.user_agent).unwrap(),
     );
-    if DEBUG {println!("{:?}", headers.get(header::AUTHORIZATION));}
+
     let form = [
         ("grant_type", "password"),
         ("username", &config.api.username),
@@ -256,10 +233,10 @@ async fn download_data(db_client: &tokio_postgres::Client, http_client: &Client,
             4 => now = now + Duration::hours(16),
             5 => now = now + Duration::hours(24),
             6 => now = now + Duration::days(900),
-            other => panic!("Error checking stage"),
+            _other => panic!("Error checking stage"),
         }
         if DEBUG {println!("Downloading post {}", id);}
-        insert_data_to_db(&link, &db_client, &http_client, &(stage + 1), &config).await;
+        insert_data_to_db(&link, &db_client, &http_client, &(stage + 1), &config).await.unwrap();
 
         db_client
             .query(
@@ -298,7 +275,7 @@ async fn insert_data_to_db(url: &str, db_client: &tokio_postgres::Client, http_c
 
     let subreddit_size: i32 = data["subreddit_subscribers"].as_f64().unwrap() as i32;
     let subreddit = data["subreddit"].to_string();
-    let insert = db_client
+    let _insert = db_client
         .query(&format!("INSERT INTO posts (post_id, title, selftext, author, utc, preview, ratio_1, score_1, subreddit, subreddit_size) \
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (post_id) DO UPDATE SET {} = $7, {} = $8;", ratio_name, score_name),
                &[&post_id, &title, &selftext, &author, &utc, &preview, &ratio, &score, &subreddit, &subreddit_size])
@@ -332,7 +309,7 @@ async fn add_comments_to_db(response: &Value, stage: &i16, depth: i32, db_client
         let post_id = data["parent_id"].to_string();
         let controversiality_name = format!("controversiality_{}", stage.to_string());
         let score_name = format!("score_{}", stage.to_string());
-        let insert = db_client
+        let _insert = db_client
             .query(&format!("INSERT INTO comments (comment_id, body, author, utc, {cont}, {score}, post_id) \
              VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (comment_id) DO UPDATE SET {cont} = $5, {score} = $6;",
                             cont = controversiality_name, score = score_name),
@@ -340,7 +317,7 @@ async fn add_comments_to_db(response: &Value, stage: &i16, depth: i32, db_client
             .await.expect("Error inserting to comments");
 
         if &depth <= &config.reddit.max_comment_depth {
-            let mut children_data = &data["replies"];
+            let children_data = &data["replies"];
             add_comments_to_db(children_data, stage, depth + 1, db_client,
                                &format!("{}_", &comment_id), &config).await;
         }
@@ -356,13 +333,12 @@ async fn discover_posts(db_client: &tokio_postgres::Client, http_client: &Client
     for x in urls {
         for y in endings {
             let url_temp = format!("https://oauth.reddit.com{}{}", clean_data(x.to_string()), clean_data(y.to_string()));
-            let mut result = http_client.get(&url_temp).send().await?.text().await?;
+            let result = http_client.get(&url_temp).send().await?.text().await?;
             let v: Value = serde_json::from_str(&*result).unwrap();
             let mut iterator = 0;
             let mut data = &v["data"]["children"][iterator]["data"];
 
             while data != &serde_json::Value::Null {
-                let id = clean_data(data["id"].to_string());
                 let url_to_post = format!(
                     "https://oauth.reddit.com{}?raw_json=1&sort=best&api_type=json",
                     clean_data(data["permalink"].to_string())
@@ -376,7 +352,7 @@ async fn discover_posts(db_client: &tokio_postgres::Client, http_client: &Client
                 let init: chrono::DateTime<Utc> = chrono::DateTime::from(chrono::Utc::now());
                 let now: chrono::DateTime<Utc> = chrono::DateTime::from(chrono::Utc::now());
 
-                let insert = db_client
+                let _insert = db_client
                     .query("INSERT INTO updates (post_id, utc, init, update_time, stage, link) \
                     VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (post_id) DO NOTHING;",
                            &[&post_id, &utc, &init, &now, &0_i16, &url_to_post])

@@ -1,11 +1,15 @@
 ## **rust-reddit-app** ##
 
 
-## What does it do and why?
+### What does it do and why?
 
 The initial thought behind the project was to create a simple program for gathering data from reddit. The initial problem was with storing historical data, not only how popular post is but also how quickly it took him to get  there (same with comments). The usual use case would be feeding this data to data mining algorithm and finding sentiment / popularity of certain terms. 
 
-## How to run the project?
+### How does it work?
+
+It searches through subreddit listed in configuration.toml and checks every 15 minutes for new posts and new comments. Once the post has been checked it will go to stage two, which means the next update will be in 1 hour. The next stages will be in 3, 5, 8, 16, 24 hours. The final stage will be updated in 900 days. 
+
+### How to run the project?
 
 There are 4 requirements for it to run:
 1. Rust and cargo
